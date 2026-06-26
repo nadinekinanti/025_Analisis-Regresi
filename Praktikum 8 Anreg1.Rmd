@@ -1,0 +1,120 @@
+---
+title: "Praktikum 8 Analisis Regresi"
+author: "Nadine Kinanti"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown
+---
+
+# Package
+
+```{r}
+library(readxl)
+library(car) # untuk multikolinearitas
+library(olsrr) # untuk best subset
+library(MASS) # untuk forward, backward, dan stepwise
+library(glmnet) # untuk ridge dan lasso
+library(dplyr)
+```
+
+# Data
+Data yang digunakan adalah data dari 38 provinsi di Indonesia pada Tahun 2023 dengan 1 peubah respon yaitu Persentase Pekerja Anak (PPA) dan 5 peubah penjelas yang semuanya merupakan peubah kuantitatif. Peubah tersebut adalah Garis Kemiskinan (GK), Produk Domestik Regional Bruto (PDRB), Tingkat Pengangguran Terbuka (TPT), Rata-rata Lama Sekolah (RLS), dan Tingkat partisipasi dalam pembelajaran yang teroganisir (TPPT).
+
+```{r}
+data <- read_xlsx("C:\\Users\\Lenovo\\Downloads\\SEM 4\\ANREG\\data anreg\\DATA Persentase Pekerja Anak (usia 10-17 tahun) Menurut Provinsi, 2023.xlsx")
+data
+```
+
+```{r}
+data <- dplyr::select(data, -Provinsi)
+```
+
+# Pemodelan Awal
+
+```{r}
+model1 <- lm(PPA ~ ., data=data)
+summary(model1)
+```
+
+Persamaan yang terbentuk dari seluruh peubah tersebut menghasilkan nilai koefisien determinasi sebesar 48.88% dengan 3 parameter yang tidak signifikan yaitu peubah GK, PDRB, dan RLS. Selanjutnya akan diperiksa ada tidaknya multikolinearitas pada model.
+
+$$\hat{PPA}=0.1948−0.000000076GK+0.0022PDRB-0.5457TPT−0.000068RLS+0.0543TPPT$$
+
+# Pemeriksaan Multikolinieritas
+
+```{r}
+vif(model1)
+```
+
+Hasil pemeriksaan nilai VIF menunjukkan terdapat 2 peubah penjelas yang memiliki VIF>10 yaitu pada RLS dan TPPT, sehingga ada multikolinearitas pada keduanya.
+
+# Penyeleksian Peubah
+
+## Best Subset
+
+```{r}
+bs <- ols_step_best_subset(model1)
+bs
+```
+
+## Backward, Forward, dan Stepwise
+
+```{r}
+null<-lm(PPA ~ 1, data=data) # 1 here means the intercept 
+full<-lm(PPA ~ ., data=data)
+ 
+step(full, scope=list(lower=null, upper=full),data=data, direction='backward', trace=0)
+```
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=data, direction='forward', trace=0)
+```
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=data, direction='both', trace=0)
+```
+
+Hasil penyeleksian melalui best subset, backward, forward, dan stepwise menghasilkan model yang sama, yaitu dengan 2 peubah penjelas (TPT dan TPPT).
+
+```{r}
+model2 <- lm(PPA ~ TPPT + TPT, data=data)
+summary(model2)
+```
+
+```{r}
+AIC(model2); BIC(model2)
+```
+
+Model yang dihasilkan memiliki 2 peubah penjelas yang signifikan pada taraf nyata 5% dengan nilai adjusted r square sebesar 53.25% yang lebih besar daripada model dengan semua peubah. Nilai AIC pada model ini adalah 113.3597 dan BIC sebesar 119.9101.
+
+$$\hat{PPA} = 0.1932-0.5484TPT+0.0540TPPT$$
+
+# Shrinkage Methods
+
+## Ridge
+
+```{r}
+x <- as.matrix(data[, -1])
+y <- data$PPA
+
+rid <- cv.glmnet(x, y, alpha = 0, nfolds = 5)  # Ridge regression
+# secara default, nfolds = 10 sehingga akan buruk ketika n<30
+rid
+coef(rid, s = "lambda.min")
+```
+
+Model yang terbentuk menggunakan semua peubah penjelas, pemodelan ridge akan lebih terlihat berguna jika digunakan peubah yang terdapat multikolinearitas sehingga tidak perlu disisihkan ketika ada yang memiliki VIF > 10.
+
+$$\hat{PPA}=0.6574+0.00000039GK+0.0279PDRB-0.2754TPT+0.1030RLS+0.0216TPPT$$
+
+## Lasso
+
+```{r}
+lass <- cv.glmnet(x, y, alpha=1, nfolds = 5)
+lass
+coef(lass,s="lambda.min")
+```
+
+Lasso menghasilkan pemodelan regresi dengan penyusutan/penyeleksian peubah yang memiliki koefisien yang sangat mendekati atau bahkan tepat nol.
+
+$$\hat{PPA}=0.4636−0.3580TPT+0.0416TPPT$$
