@@ -1,0 +1,234 @@
+---
+title: "Praktikum 5 Anreg"
+author: "Nadine Kinanti"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown
+---
+
+# Library
+```{r}
+library(readxl) # untuk membaca data
+library(GGally) # untuk menghasilkan matriks hubungan antarpeubah
+library(corrplot) # untuk menghasilkan matriks korelasi
+library(dplyr) # untuk manipulasi data
+library(car) # untuk memeriksa multikolinearitas
+```
+
+# Data
+```{r}
+data <- read_excel("C:\\Users\\Lenovo\\Downloads\\SEM 4\\ANREG\\data anreg\\DATA Persentase Pekerja Anak (usia 10-17 tahun) Menurut Provinsi, 2023.xlsx")
+head(data) # menampilkan sekian data awal
+str(data) # menampilkan tipe data setiap peubah
+summary(data) # menampilkan ringkasan data
+```
+
+Data yang digunakan adalah data dari 38 provinsi di Indonesia pada Tahun 2023 dengan 1 peubah respon yaitu Persentase Pekerja Anak (PPA) dan 5 peubah penjelas yang semuanya merupakan peubah kuantitatif. Peubah tersebut adalah Garis Kemiskinan (GK), Produk Domestik Regional Bruto (PDRB), Tingkat Pengangguran Terbuka (TPT), Rata-rata Lama Sekolah (RLS), dan Tingkat partisipasi dalam pembelajaran yang teroganisir (TPPT). Untuk mempermudah dalam komputasi, karena peubah provinsi tidak digunakan, maka dapat dihapus. Pada praktikum kali ini akan dilakukan satu pemodelan, yakni model dengan seluruh peubah kuantitatif.
+
+```{r}
+data <- select(data, -Provinsi)
+```
+
+# Eksplorasi data
+
+```{r}
+hist(data$PPA, main = "Sebaran Persentase Pekerja Anak")
+```
+
+```{r}
+boxplot(data$PPA, main = "Sebaran Persentase Pekerja Anak")
+```
+
+```{r}
+ggpairs(data,
+        upper = list(continuous = wrap('cor', size = 3)),
+        title = "Matriks Scatterplot Data")
+
+```
+
+```{r}
+cor_matrix <- cor(data, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "lower",
+         col = colorRampPalette(c("red", "white", "purple"))(200),
+         addCoef.col = "black", tl.col = "black", tl.srt = 35)
+```
+
+Hasil matriks scatter plot dan korelasi menunjukkan bahwa peubah respon PPA memiliki hubungan positif dengan semua peubah penjelas. Semua peubah ini secara signifikan memiliki korelasi dengan PPA, termasuk dengan TPT walaupun korelasinya bernilai sangat kecil.
+
+Selain itu, terdapat banyak korelasi tinggi antar peubah penjelas, yang lebih dari 0.5. Beberapa di antaranya adalah:
+1. TPT dan GK memiliki korelasi 0.741.
+2. RLS dengan GK dan TPT masing-masing sebesar 0.876 dan 0.798.
+3. TPPT dengan GK, TPT, dan RLS masing-masing sebesar 0.830, 0.739, dan 0.956.
+
+Korelasi yang tinggi ini mengindikasikan adanya potensi multikolinearitas, yang dapat mempengaruhi keakuratan model yang akan dibentuk.
+
+# Pemodelan
+## Tanpa Fungsi
+Perhitungan nilai $\hat{\beta}$ secara matriks dapat dilakukan dengan rumus berikut.
+
+$$\hat{\beta} = (X'X)^{-1} X'y$$
+
+```{r}
+# pembentukan matriks
+n <- nrow(data)
+x0 <- rep(1,n)
+x <- data.frame(x0, data$GK, data$PDRB, data$TPT, data$RLS, data$TPPT)
+x <- as.matrix(x)
+y <- data$PPA
+```
+
+```{r}
+beta_duga <- solve(t(x)%*%x)%*%t(x)%*%y
+beta_duga
+```
+
+Hasil tersebut menjelaskan bahwa persamaan yang terbentuk adalah
+$$\hat{PPA}=0.1948−0.000000076GK+0.0022PDRB-0.5457TPT−0.000068RLS+0.543TPPT$$
+Selang kepercayaan dan pengujian signifikansi setiap parameter dapat dilakukan dengan menghitung keragaman tiap dugaan parameter. Secara umum, nilai ragam dugaan parameter $\hat{\beta}_j$ dapat dihitung melalui rumus berikut.
+
+$$Var(\hat{\beta}_j) = \hat{\sigma}^2 C_{jj}$$
+Dengan matriks $C$ adalah matriks $(X'X)^{-1}$ 
+
+```{r}
+c <- data.frame(solve(t(x)%*%x))
+```
+
+Unsur diagonal dari matriks $C$ dapat digunakan untuk menghitung nilai galat baku dari setiap dugaan parameter. Galat baku ini dapat digunakan untuk menghitung selang kepercayaan dari dugaan yang dihasilkan.
+
+$$SE(\hat{\beta}_j) = \sqrt{Var(\hat{\beta}_j)} = \sqrt{\sigma^2 C_{jj}} = \hat{\sigma}\sqrt{c_{ii}}$$
+
+Misal ingin dihitung selang kepercayaan dari dugaan parameter $\beta_2$, maka
+
+```{r}
+y_hat <- x %*% beta_duga
+residuals <- y - y_hat
+n <- nrow(x)
+p <- ncol(x)
+KTG <- sum(residuals^2) / (n - p) 
+
+c22 <- c[2,2]
+
+(se.b2 <- sqrt(KTG*c22))
+```
+
+```{r}
+alfa <- 0.05
+
+#Batas Bawah beta2
+(bb.b2 <- beta_duga[3,1] - abs(qt(alfa/2, df=n-p))*se.b2)
+```
+
+```{r}
+#Batas Atas beta2
+(ba.b2 <- beta_duga[3,1] + abs(qt(alfa/2, df=n-p))*se.b2)
+```
+
+Dengan demikian, kita dapat ketahui selang kepercayaan untuk $\hat{\beta}_2$ sebagai berikut.
+$$0.002159<\hat{\beta}_2<0.002166$$
+
+Pada kasus selang kepercayaan $\hat{\beta}_2$ di atas, didapati bahwa dugaan parameter berada dalam rentang yang mengandung nilai 0. Dengan demikian, dapat dimaknai bahwa diduga nilai parameter $\hat{\beta}_2$ bernilai 0 atau tidak signifikan dalam taraf nyata 5%.
+
+
+# Dengan Fungsi
+```{r}
+model1 <- lm(formula = PPA ~ ., data = data)
+summary(model1)
+```
+
+Dugaan parameter model secara matriks dan fungsi menghasilkan angka yang sama, sehingga perhitungan matriks memang sudah tepat. Pada ringkasan model ini dapat dilihat bahwa tidak ada parameter yang signifikan pada taraf nyata 5%, namun secara simultan model ini signifikan dengan nilai p yang lebih kecil dari alpha yaitu 0.000051. Hal ini mengindikasi model yang buruk, kemungkinan terjadi pelanggaran asumsi sisaan maupun multikolinearitas.
+
+# Pemeriksaan Multikoliniearitas
+```{r}
+vif(model1)
+```
+
+Hasil uji ini menunjukkan peubah RLS dan TPPT memiliki nilai VIF yang sangat tinggi (>10). Pada analisis kali ini, penanganan dilakukan dengan menghapus dua peubah dengan VIF tertinggi yaitu RLS dan TPPT.
+
+# Pemodelan Kedua
+
+```{r}
+model2 <- lm(PPA ~ GK + PDRB + TPT, data = data)
+summary(model2)
+```
+
+Persamaan yang terbentuk adalah
+$$\hat{PPM}=1.2210+0.0000042GK+0.0869PDRB−0.3248TPT$$
+```{r}
+vif(model2)
+```
+
+Model hasil reduksi peubah menunjukkan nilai VIF < 10 sehingga tidak terjadi multikolinearitas. Secara simultan, model sudah signifikan dengan F-statistik sebesar 3,765 dan p-value 0,01951. Namun secara parsial, hanya peubah GK yang signifikan pada $${\alpha}$$ = 0,05, sedangkan PDRB dan TPT belum signifikan. Kondisi ini mengindikasikan adanya permasalahan lain yang belum tertangani, sehingga perlu dilakukan uji asumsi klasik serta pemeriksaan pencilan, leverage, dan amatan berpengaruh.
+
+
+# Uji Hipotesis Kesamaan Parameter Regresi
+Misal ingin dilakukan pemodelan dengan peubah respon Persentase pekerja Anak dengan 3 peubah penjelas, yaitu GK, TPT, dan RLS.
+```{r}
+model4 <- lm(PPA ~ GK + TPT + RLS, data = data)
+summary(model4)
+```
+
+```{r}
+vif(model4)
+```
+
+Regresi yang dihasilkan tidak mengalami masalah multikolinearitas. Hasil tersebut menunjukkan bahwa peubah TPT dan RLS signifikan pada taraf nyata 5%, sedangkan GK tidak signifikan. Berikut adalah persamaan yang terbentuk
+
+$$\hat{PPA}=0.5410−0.00000022GK-0.6005TPT+0.5760RLS$$
+
+Hasil pemodelan tersebut dapat dilakukan serangkaian uji untuk memeriksa apakah $β_2=β_3$ dapat diasumsikan sama ketika parameter lainnya tidak signifikan atau diasumsikan sama dengan nol.
+
+Hipotesis yang diuji adalah
+
+$$H_0: β2=β3$$
+$$H_1: β2≠β3$$
+
+Karena peubah GK tidak signifikan maka dapat diasumsikan nol sehingga model dapat disederhanakan menjadi:
+
+$$PPM=β_0+β_2TPT+β_3RLS+ε$$
+Jika $H_0$ benar $(β_2β_3=β_1')$, model bisa ditulis ulang sebagai
+
+$$PPM=β_0+β_1' (TPT+RLS)+ε$$
+
+```{r}
+# Buat peubah baru
+data$X_new <- data$TPT + data$RLS
+
+# Model penuh (Full Model)
+model_full <- lm(PPA ~ TPT + RLS, data = data)
+
+# Model terbatas (Restricted Model)
+model_restricted <- lm(PPA ~ X_new, data = data)
+
+# Bandingkan dengan Uji F
+anova(model_restricted, model_full)
+```
+
+Hasil perbandingan menunjukkan bahwa nilai p kurang dari alpha sehingga dapat disimpulkan bahwa tolak H0, artinya peubah TPT dan RLS berbeda secara signifikan sehingga tidak dapat digabung. Selanjutnya dapat dipilih apakah akan menggunakan peubah dengan 3 peubah atau hanya 2 peubah berdasarkan indikator AIC dan BIC.
+
+```{r}
+model_all <- lm(PPA ~ GK + TPT + RLS, data = data)
+summary(model_all)
+```
+
+```{r}
+model_signif <- lm(PPA ~ TPT + RLS, data = data)
+summary(model_signif)
+```
+
+```{r}
+perbandingan <- data.frame(
+  Model = c("Peubah Penuh", "Peubah Signifikan"),
+  AIC = as.numeric(c(AIC(model_all), AIC(model_signif))),
+  BIC = as.numeric(c(BIC(model_all), BIC(model_signif)))
+)
+perbandingan
+```
+
+Berdasarkan indikator AIC dan BIC maka model dengan hanya dua peubah dipilih sebagai model yang terbaik. Persamaan yang terbentuk adalah sebagai berikut
+
+$$\hat{PPA}=0.5104-0.6032TPT+0.5634RLS$$
+Interpretasi:\
+1. Dugaan rataan persentase pekerja anak jika TPT dan RLS bernilai 0 adalah 0.5104%\
+2. Dugaan rataan persentase pekerja anak akan menurun 0.6032% apabila rata-rata tingkat pengangguran terbuka meningkat satu persen dengan asumsi rata-rata lama sekolah konstan\
+3. Dugaan rataan persentase pekerja anak akan meningkat 0.5634% apabila rata-rata lama sekolah meningkat satu persen dengan asumsi  rata-rata tingkat pengangguran terbuka konstan\
